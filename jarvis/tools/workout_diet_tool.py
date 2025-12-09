@@ -4,7 +4,6 @@ from typing import List, Dict, Optional, Any
 from django.conf import settings
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import os
 
@@ -37,43 +36,42 @@ class WorkoutDietTool:
         except ImportError:
             logger.warning("googleapiclient or google.oauth2 not available. Install 'google-api-python-client' and 'google-auth' to enable Sheets access.")
 
-    # def _load_credentials(self):
-    #     token_file = f"token_{self.user_id or 'default'}.json"
-    #     token_path = os.path.join(settings.BASE_DIR, "tokens", token_file)
-
-    #     # load existing token if available
-    #     if os.path.exists(token_path):
-    #         self.creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-
-    #     # Refresh or request new credentials
-    #     if not self.creds or not self.creds.valid:
-    #         if self.creds and self.creds.expired and self.creds.refresh_token:
-    #             self.creds.refresh(Request())
-    #         else:
-    #             flow = InstalledAppFlow.from_client_secrets_file(
-    #                 os.path.join(settings.BASE_DIR, "credentials.json"), SCOPES
-    #             )
-    #             self.creds = flow.run_local_server(port=0)
-
-    #         os.makedirs(os.path.dirname(token_path), exist_ok=True)
-    #         with open(token_path, "w") as token:
-    #             token.write(self.creds.to_json())
-
-    #     # Build the Sheets API service
-    #     self.service = build("sheets", "v4", credentials=self.creds)
-
     def _load_credentials(self):
+        """
+        Load credentials using refresh token from environment variables.
+        This approach works on VPS without requiring browser authentication.
+        """
         token_path = os.path.join(settings.BASE_DIR, f'tokens/token_{self.user_id}.json')
+        
+        # Try to load existing token file first
         if os.path.exists(token_path):
             self.creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                os.path.join(settings.BASE_DIR, "credentials.json"), SCOPES
-            )
-            self.creds = flow.run_local_server(port=0)
+        
+        # If no valid credentials, create from environment variables
+        if not self.creds or not self.creds.valid:
+            if self.creds and self.creds.expired and self.creds.refresh_token:
+                # Refresh expired credentials
+                logger.info(f"Refreshing expired credentials for user {self.user_id}")
+                self.creds.refresh(Request())
+            else:
+                # Create credentials from environment variables (no browser needed)
+                logger.info(f"Creating credentials from environment variables for user {self.user_id}")
+                self.creds = Credentials(
+                    token=None,
+                    refresh_token=settings.GOOGLE_REFRESH_TOKEN,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=settings.GOOGLE_CLIENT_ID,
+                    client_secret=settings.GOOGLE_CLIENT_SECRET,
+                    scopes=SCOPES
+                )
+                # Refresh to get access token
+                self.creds.refresh(Request())
+            
+            # Save credentials for future use
             os.makedirs(os.path.dirname(token_path), exist_ok=True)
             with open(token_path, "w") as token:
                 token.write(self.creds.to_json())
+            logger.info(f"Credentials saved to {token_path}")
 
         self.service = build("sheets", "v4", credentials=self.creds)
 

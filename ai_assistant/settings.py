@@ -31,8 +31,8 @@ SECRET_KEY = env('DJANGO_SECRET_KEY')
 DEBUG = env.bool('DEBUG', default=True)
 
 ALLOWED_HOSTS = [
-    '71cc040b9b85.ngrok-free.app',
     'localhost',
+    '0884b5a4d374.ngrok-free.app'
 ]
 
 
@@ -153,6 +153,7 @@ WEBHOOK_SECRET_TOKEN = env('WEBHOOK_SECRET_TOKEN', default='')
 TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
 TWILIO_PHONE_NUMBER = env('TWILIO_PHONE_NUMBER', default='')
+TWILIO_VOICE_BASE_URL = env('TWILIO_VOICE_BASE_URL', default='https://yourdomain.com/voice')
 
 
 LOGGING = {
@@ -194,50 +195,51 @@ LOGGING = {
         },
     },
     'loggers': {
+        # Stop propagation to Celery's default root handler to avoid duplicate logs
         'telegram_bot.webhook': {
             'handlers': ['console', 'rotating_file'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
         'telegram_bot.tasks': {
             'handlers': ['console', 'rotating_file', 'celery_file'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
         'telegram_bot': {
             'handlers': ['console', 'rotating_file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
         'jarvis.agent': {
             'handlers': ['console', 'rotating_file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
         'jarvis.tools.calendar_tool': {
             'handlers': ['console', 'rotating_file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
         'jarvis.tools.reminder_tool': {
             'handlers': ['console', 'rotating_file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
         'jarvis': {
             'handlers': ['console', 'rotating_file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
         'celery': {
             'handlers': ['console', 'celery_file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
         'celery.task': {
             'handlers': ['console', 'celery_file'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
     },
 }

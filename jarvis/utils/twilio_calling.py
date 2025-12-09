@@ -8,10 +8,12 @@ client = Client(account_sid, auth_token)
 
 def send_call_reminder(reminder_id):
     try:
+        base_url = settings.TWILIO_VOICE_BASE_URL  # e.g., "https://yourdomain.com/voice"
+        call_url = f"{base_url}/{reminder_id}/"
         call = client.calls.create(
             to="+2349132895231",  # recipient
             from_=settings.TWILIO_PHONE_NUMBER,  # your Twilio number
-            url=f"https://c1dc5a17f682.ngrok-free.app/voice/{reminder_id}/"
+            url=call_url
         )
         return f"📞 Call initiated! SID: {call.sid}"
 

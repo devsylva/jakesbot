@@ -75,11 +75,17 @@ class ReminderTool:
         )
         logger.info(f"Successfully created reminder for user {self.chat_id}: reminder_id={reminder.id}")
 
-        # Schedule 10 minutes before
-        send_reminder_task.apply_async((reminder.id, True), eta=time - timedelta(minutes=remind_before))
+        # Schedule the "before" reminder only if it will occur in the future
+        before_eta = time - timedelta(minutes=remind_before)
+        if remind_before > 0 and before_eta > timezone.now():
+            send_reminder_task.apply_async((reminder.id, True), eta=before_eta)
         
-        # Schedule at the exact time
-        send_reminder_task.apply_async((reminder.id, False), eta=time)
+        # Always schedule the final reminder at the exact time
+        if time > timezone.now():
+            send_reminder_task.apply_async((reminder.id, False), eta=time)
+        else:
+            # If the time is already past, fire immediately to avoid double scheduling at the same moment
+            send_reminder_task.delay(reminder.id, False)
 
         return f"⏰ Reminder '{title}' has been set for {time.strftime('%Y-%m-%d at %H:%M')} (ID: {reminder.id})"
 

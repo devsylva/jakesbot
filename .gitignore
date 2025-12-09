@@ -9,6 +9,7 @@ credentials.json
 *.json.secret
 tokens/
 *.token
+*.wav
 
 # Distribution / packaging
 .Python

@@ -1,10 +1,10 @@
 import logging
 from typing import Any, Dict, List
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from django.conf import settings
 import os
+from google.auth.transport.requests import Request
 
 logger = logging.getLogger(__name__)
 
@@ -18,17 +18,41 @@ class CalendarTool:
         self._load_credentials()
 
     def _load_credentials(self):
+        """
+        Load credentials using refresh token from environment variables.
+        This approach works on VPS without requiring browser authentication.
+        """
         token_path = os.path.join(settings.BASE_DIR, f'tokens/token_{self.user_id}.json')
+        
+        # Try to load existing token file first
         if os.path.exists(token_path):
             self.creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                os.path.join(settings.BASE_DIR, "credentials.json"), SCOPES
-            )
-            self.creds = flow.run_local_server(port=0)
+        
+        # If no valid credentials, create from environment variables
+        if not self.creds or not self.creds.valid:
+            if self.creds and self.creds.expired and self.creds.refresh_token:
+                # Refresh expired credentials
+                logger.info(f"Refreshing expired credentials for user {self.user_id}")
+                self.creds.refresh(Request())
+            else:
+                # Create credentials from environment variables (no browser needed)
+                logger.info(f"Creating credentials from environment variables for user {self.user_id}")
+                self.creds = Credentials(
+                    token=None,
+                    refresh_token=settings.GOOGLE_REFRESH_TOKEN,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=settings.GOOGLE_CLIENT_ID,
+                    client_secret=settings.GOOGLE_CLIENT_SECRET,
+                    scopes=SCOPES
+                )
+                # Refresh to get access token
+                self.creds.refresh(Request())
+            
+            # Save credentials for future use
             os.makedirs(os.path.dirname(token_path), exist_ok=True)
             with open(token_path, "w") as token:
                 token.write(self.creds.to_json())
+            logger.info(f"Credentials saved to {token_path}")
 
         self.service = build("calendar", "v3", credentials=self.creds)
 

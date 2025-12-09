@@ -5,6 +5,10 @@ from jarvis.tasks import generate_reminder_tts
 
 @receiver(post_save, sender=Reminder)
 def reminder_post_save(sender, instance, created, **kwargs):
+    # Prevent duplicate queueing within the same process (Django sometimes triggers multiple imports)
+    if getattr(instance, "_tts_enqueued", False):
+        return
+
     if created:
         # Handle the creation of a new reminder
         # Generate TTS in background for instant response
@@ -13,6 +17,7 @@ def reminder_post_save(sender, instance, created, **kwargs):
         
         # Queue the TTS generation as a background task
         generate_reminder_tts.delay(instance.id, reminder_text, user_name)
+        instance._tts_enqueued = True
         print(f"🚀 TTS generation queued for reminder {instance.id}")
         
     else:
@@ -24,4 +29,5 @@ def reminder_post_save(sender, instance, created, **kwargs):
             
             # Queue the TTS regeneration as a background task
             generate_reminder_tts.delay(instance.id, reminder_text, user_name)
+            instance._tts_enqueued = True
             print(f"🔄 TTS regeneration queued for reminder {instance.id}")
