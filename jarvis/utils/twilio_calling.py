@@ -11,7 +11,7 @@ def send_call_reminder(reminder_id):
         base_url = settings.TWILIO_VOICE_BASE_URL  # e.g., "https://yourdomain.com/voice"
         call_url = f"{base_url}/{reminder_id}/"
         call = client.calls.create(
-            to="+2349132895231",  # recipient
+            to="+2349161391003",  # recipient
             from_=settings.TWILIO_PHONE_NUMBER,  # your Twilio number
             url=call_url
         )
