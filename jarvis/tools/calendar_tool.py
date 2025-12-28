@@ -131,10 +131,10 @@ class CalendarTool:
     # 📋 List events
     def list_calendar_events(self, max_results: int = 5) -> str:
         logger.info(f"AI Agent called list_calendar_events for user {self.user_id}: max_results={max_results}")
-        from datetime import datetime
+        from django.utils import timezone
         
-        # Get current time in ISO format to filter from now onwards
-        now = datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
+        # Get current time in ISO format to filter from now onwards (UTC)
+        now = timezone.now().isoformat()
         
         events_result = self.service.events().list(
             calendarId="primary", 

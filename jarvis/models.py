@@ -28,4 +28,8 @@ class Reminder(models.Model):
         )
 
     def __str__(self):
-        return f"{self.title} @ {self.time.strftime('%Y-%m-%d %H:%M')}"
+        from django.utils import timezone
+        import pytz
+        local_tz = pytz.timezone('Africa/Lagos')
+        local_dt = timezone.localtime(self.time, local_tz)
+        return f"{self.title} @ {local_dt.strftime('%Y-%m-%d %H:%M %Z')}"

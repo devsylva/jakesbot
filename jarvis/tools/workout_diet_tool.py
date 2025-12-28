@@ -2,10 +2,12 @@ import logging
 import datetime
 from typing import List, Dict, Optional, Any
 from django.conf import settings
+from django.utils import timezone
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import os
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -23,18 +25,26 @@ class WorkoutDietTool:
         self.workout_tab = "Workout Plan"
         self.diet_tab = "Diet Plan"
         self.service = None
+        self.mode = getattr(settings, 'WORKOUT_DIET_MODE', 'local')
+        self._local_path = os.path.join(settings.BASE_DIR, 'tokens', f'workout_diet_{self.user_id or 0}.json')
 
-        if not self.sheet_id:
-            logger.warning("GOOGLE_SHEET_ID not set in settings. Tool will not access Sheets until configured.")
+        if self.mode == 'sheets' and not self.sheet_id:
+            logger.warning("GOOGLE_SHEET_ID not set in settings. Falling back to local mode.")
+            self.mode = 'local'
+        if self.mode == 'local':
+            # Ensure local store exists with defaults
+            self._ensure_local_store()
 
         self.creds = None
-        try:
-            # Check if required modules are available"
-            from googleapiclient.discovery import build
-            from google.oauth2.credentials import Credentials
-            self.creds = self._load_credentials()
-        except ImportError:
-            logger.warning("googleapiclient or google.oauth2 not available. Install 'google-api-python-client' and 'google-auth' to enable Sheets access.")
+        if self.mode == 'sheets':
+            try:
+                # Check if required modules are available"
+                from googleapiclient.discovery import build
+                from google.oauth2.credentials import Credentials
+                self.creds = self._load_credentials()
+            except ImportError:
+                logger.warning("googleapiclient or google.oauth2 not available. Switching to local mode.")
+                self.mode = 'local'
 
     def _load_credentials(self):
         """
@@ -46,6 +56,18 @@ class WorkoutDietTool:
         # Try to load existing token file first
         if os.path.exists(token_path):
             self.creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+            # If the stored token lacks required scopes (e.g., Sheets), rebuild from env
+            try:
+                granted_scopes = set(getattr(self.creds, 'scopes', []) or [])
+                if 'https://www.googleapis.com/auth/spreadsheets' not in granted_scopes:
+                    logger.warning(
+                        "Existing token at %s lacks 'spreadsheets' scope. Rebuilding credentials from environment.",
+                        token_path,
+                    )
+                    self.creds = None
+            except Exception:
+                # If we cannot inspect scopes, force rebuild from env
+                self.creds = None
         
         # If no valid credentials, create from environment variables
         if not self.creds or not self.creds.valid:
@@ -73,7 +95,8 @@ class WorkoutDietTool:
                 token.write(self.creds.to_json())
             logger.info(f"Credentials saved to {token_path}")
 
-        self.service = build("sheets", "v4", credentials=self.creds)
+        if self.mode == 'sheets':
+            self.service = build("sheets", "v4", credentials=self.creds)
 
     def _sheets_service(self):
         if not self.service:
@@ -81,9 +104,69 @@ class WorkoutDietTool:
 
         return self.service
 
+    # ------------------ Local Store Helpers ------------------
+    def _ensure_local_store(self):
+        os.makedirs(os.path.dirname(self._local_path), exist_ok=True)
+        if not os.path.exists(self._local_path):
+            default = {
+                self.workout_tab: [
+                    ["Day", "Exercises", "Sets", "Notes"],
+                    ["Monday", "Push Day: Bench, Incline Press, Push-ups", "3x8-10", "Focus on form"],
+                    ["Tuesday", "Pull Day: Rows, Lat Pulldown, Biceps", "3x10-12", "Add core finisher"],
+                    ["Wednesday", "Leg Day: Squats, Lunges, Hamstrings", "4x6-8", "Warm up properly"],
+                    ["Thursday", "Upper Body Accessory: Press, Pull, Core", "3x12", "Move fast"],
+                    ["Friday", "Full Body Circuit", "3 rounds", "Keep heart rate up"],
+                    ["Saturday", "Active Recovery", "—", "Walk 30 mins"],
+                    ["Sunday", "Rest", "—", "Recover"]
+                ],
+                self.diet_tab: [
+                    ["Day", "Meal Time", "Meal Name", "Food Items", "Calories"],
+                    ["Monday", "Breakfast", "Oatmeal + Eggs", "Oats, eggs, banana", "500"],
+                    ["Monday", "Lunch", "Chicken + Rice", "Chicken breast, rice, veggies", "500"],
+                    ["Monday", "Dinner", "Salmon + Greens", "Salmon, salad", "500"],
+                ]
+            }
+            with open(self._local_path, 'w') as f:
+                json.dump(default, f)
+
+    def _load_local(self) -> Dict[str, Any]:
+        with open(self._local_path, 'r') as f:
+            return json.load(f)
+
+    def _save_local(self, data: Dict[str, Any]):
+        with open(self._local_path, 'w') as f:
+            json.dump(data, f)
+
+    def _local_read_tab(self, tab_name: str) -> List[List[str]]:
+        data = self._load_local()
+        return data.get(tab_name, [])
+
+    def _local_write_row(self, tab_name: str, row_index_1_based: int, col_index_1_based: int, value: Any):
+        data = self._load_local()
+        rows = data.get(tab_name, [])
+        # Ensure row exists
+        while len(rows) < row_index_1_based:
+            rows.append([""] * len(rows[0] if rows else []))
+        row = rows[row_index_1_based - 1]
+        # Ensure columns exist
+        while len(row) < col_index_1_based:
+            row.append("")
+        row[col_index_1_based - 1] = value
+        data[tab_name] = rows
+        self._save_local(data)
+
+    def _local_append_row(self, tab_name: str, new_row: List[Any]):
+        data = self._load_local()
+        rows = data.get(tab_name, [])
+        rows.append(new_row)
+        data[tab_name] = rows
+        self._save_local(data)
+
     # ------------------ Helpers ------------------
     def _read_tab(self, tab_name: str) -> List[List[str]]:
         """Return raw values (list of rows) from the given tab."""
+        if self.mode == 'local':
+            return self._local_read_tab(tab_name)
         if not self.sheet_id:
             raise RuntimeError("GOOGLE_SHEET_ID not configured in settings.")
         service = self._sheets_service()
@@ -93,6 +176,22 @@ class WorkoutDietTool:
         return values
 
     def _write_range(self, range_name: str, values: List[List[Any]]):
+        if self.mode == 'local':
+            # Parse simple A1 range like `'Tab'!B2`
+            try:
+                tab_part, a1 = range_name.split('!')
+                tab_name = tab_part.strip("'")
+                # Only support single-cell updates here
+                row = int(''.join([c for c in a1 if c.isdigit()]))
+                # Convert letters to number
+                letters = ''.join([c for c in a1 if c.isalpha()]).upper()
+                col = 0
+                for ch in letters:
+                    col = col * 26 + (ord(ch) - 64)
+                self._local_write_row(tab_name, row, col, values[0][0] if values and values[0] else "")
+                return {"updated": True}
+            except Exception:
+                return {"updated": False}
         if not self.sheet_id:
             raise RuntimeError("GOOGLE_SHEET_ID not configured in settings.")
         service = self._sheets_service()
@@ -127,7 +226,7 @@ class WorkoutDietTool:
     
     def get_today_workout(self, day: Optional[str] = None) -> Dict[str, Any]:
         """Return the workout for a given day (defaults to today)."""
-        target = day or datetime.datetime.now().strftime("%A")
+        target = day or timezone.now().strftime("%A")
         return self.get_workout(target)
 
     def update_workout(self, day: str, updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -169,19 +268,21 @@ class WorkoutDietTool:
             col_idx = self._find_column(headers, [field.lower()])
             if col_idx is not None:
                 new_row[col_idx] = value
-        
-        append_range = f"'{self.workout_tab}'"
-        self._sheets_service().spreadsheets().values().append(
-            spreadsheetId=self.sheet_id, 
-            range=append_range, 
-            valueInputOption='RAW', 
-            body={'values': [new_row]}
-        ).execute()
+        if self.mode == 'local':
+            self._local_append_row(self.workout_tab, new_row)
+        else:
+            append_range = f"'{self.workout_tab}'"
+            self._sheets_service().spreadsheets().values().append(
+                spreadsheetId=self.sheet_id, 
+                range=append_range, 
+                valueInputOption='RAW', 
+                body={'values': [new_row]}
+            ).execute()
         return {headers[i]: new_row[i] for i in range(len(headers))}
 
     def update_today_workout(self, new_value: str, day: Optional[str] = None) -> Dict[str, Any]:
         """Legacy method for backward compatibility."""
-        target = day or datetime.datetime.now().strftime("%A")
+        target = day or timezone.now().strftime("%A")
         return self.update_workout(target, {'Exercises': new_value})
 
     def set_rest_day(self, day: str) -> Dict[str, Any]:
@@ -229,7 +330,7 @@ class WorkoutDietTool:
     
     def get_today_diet(self, day: Optional[str] = None) -> Dict[str, Any]:
         """Return the diet for a given day (defaults to today)."""
-        target = day or datetime.datetime.now().strftime("%A")
+        target = day or timezone.now().strftime("%A")
         return self.get_diet(target)
 
     def update_diet(self, day: str, meal_data: Dict[str, Any], meal_time: Optional[str] = None) -> Dict[str, Any]:
@@ -293,18 +394,21 @@ class WorkoutDietTool:
             if col_idx is not None:
                 new_row[col_idx] = value
         
-        append_range = f"'{self.diet_tab}'"
-        self._sheets_service().spreadsheets().values().append(
-            spreadsheetId=self.sheet_id, 
-            range=append_range, 
-            valueInputOption='RAW', 
-            body={'values': [new_row]}
-        ).execute()
+        if self.mode == 'local':
+            self._local_append_row(self.diet_tab, new_row)
+        else:
+            append_range = f"'{self.diet_tab}'"
+            self._sheets_service().spreadsheets().values().append(
+                spreadsheetId=self.sheet_id, 
+                range=append_range, 
+                valueInputOption='RAW', 
+                body={'values': [new_row]}
+            ).execute()
         return {headers[i]: new_row[i] for i in range(len(headers))}
 
     def update_today_diet(self, new_value: Dict[str, Any], day: Optional[str] = None) -> Dict[str, Any]:
         """Legacy method for backward compatibility."""
-        target = day or datetime.datetime.now().strftime("%A")
+        target = day or timezone.now().strftime("%A")
         return self.update_diet(target, new_value)
     
     def add_meal(self, day: str, meal_time: str, meal_name: str, food_items: str = None, calories: str = None) -> Dict[str, Any]:
@@ -336,7 +440,7 @@ class WorkoutDietTool:
         day = day.strip().lower()
         
         # Handle relative days
-        today = datetime.datetime.now()
+        today = timezone.now()
         if day in ['today']:
             return today.strftime("%A").lower()
         elif day in ['tomorrow']:

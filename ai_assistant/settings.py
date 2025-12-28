@@ -32,7 +32,10 @@ DEBUG = env.bool('DEBUG', default=True)
 
 ALLOWED_HOSTS = [
     'localhost',
-    '0884b5a4d374.ngrok-free.app'
+    '127.0.0.1',
+    'jacksonsaiassistant.com',
+    'www.jacksonsaiassistant.com',
+    'feee85a49328.ngrok-free.app',
 ]
 
 
@@ -126,6 +129,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
 # Default primary key field type
@@ -243,3 +247,6 @@ LOGGING = {
         },
     },
 }
+
+# Workout/Diet data source mode: 'local' (JSON file with defaults) or 'sheets'
+WORKOUT_DIET_MODE = env('WORKOUT_DIET_MODE', default='local')

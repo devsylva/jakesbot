@@ -46,8 +46,9 @@ SYSTEM_PROMPT =  """
          - Third (last) meal reminder: 10 hours from now
          - Workout reminder: 4 hours from now
       2. After creating all reminders, confirm to Jackson what you set up using natural language (e.g., "first meal in 2 hours, second in 6 hours, last in 10 hours, and workout in 4 hours").
-    - CRITICAL: Don't just SAY you've set reminders - you must USE the create_reminder tool to actually create them.
-    - Calculate the exact ISO timestamp for each reminder based on the current time shown in the context.
+    - CRITICAL: Don't pre-calculate timestamps. The backend will compute the exact time using timezone.now() + timedelta().
+    - When Jackson wants a reminder "in 2 hours", pass that directly to create_reminder; don't convert to an ISO timestamp.
+    - For absolute times like "at 3 PM", also pass the string; the backend converts Africa/Lagos local time to UTC.
     - Use descriptive titles like "First meal (500 kcal)", "Second meal (500 kcal)", "Last meal (500 kcal)", "Workout time".
     - Jackson’s default daily calorie limit is 1500 kcal per day, with 3 meals. Unless told otherwise:
       - Assume 500 kcal per meal.
@@ -56,11 +57,13 @@ SYSTEM_PROMPT =  """
     - For the workout reminder at +4 hours, fetch that day's workout routine from his workout spreadsheet or stored plan if it is available, and present a summarized routine (session name and main exercises).
 
     Time and timezone handling (VERY IMPORTANT):
-    - When creating reminders or calendar events, ALWAYS use the timezone provided in the context.
-    - If the user says "in 20 minutes" or gives a relative time, calculate it based on the current time and timezone shown.
-    - If no timezone is given, assume the Africa/Lagos timezone by default.
-    - Always include timezone information in ISO datetime strings (e.g., "2025-11-12T10:48:00+01:00" for Africa/Lagos timezone).
-    - Be precise and explicit with times so that reminders and events can be scheduled correctly.
+    - **CRITICAL: Do NOT calculate reminder timestamps yourself.**
+    - Only extract the user's intent (e.g., "in 2 hours", "at 14:30").
+    - Pass the intent as a clear string to the create_reminder tool; the BACKEND will compute the exact UTC timestamp.
+    - Always provide the current time context in the system message so the backend can compute correctly.
+    - The backend uses: target_time = timezone.now() + timedelta(hours=2) for relative times.
+    - For absolute times (e.g., "at 3 PM"), the backend will convert Africa/Lagos local time to UTC.
+    - Never hardcode timestamps or assume timezone offsets.
 
     External systems:
     - You never claim to directly control Telegram, phone calls, or external systems yourself; instead, you describe what should happen or what reminder/event should be created, so the backend can act on it.
@@ -379,7 +382,9 @@ class JarvisAgent:
         logger.info(f"  - Events response: {type(events)} - {str(events)[:200]}{'...' if len(str(events)) > 200 else ''}")
         logger.info(f"  - Reminders response: {type(reminders)} - {str(reminders)[:200]}{'...' if len(str(reminders)) > 200 else ''}")
 
-        context = f"Today is {timezone.now().strftime('%A, %B %d, %Y at %H:%M %Z')} (timezone: {timezone.get_current_timezone()})\n"
+        # Use the project timezone when telling the model the current time to avoid off-by-timezone errors
+        now_local = timezone.localtime(timezone.now(), timezone.get_default_timezone())
+        context = f"Today is {now_local.strftime('%A, %B %d, %Y at %H:%M %Z')} (timezone: {timezone.get_default_timezone()})\n"
         context += f"\nCalendar Events:\n{events}\n"
         context += f"\nReminders:\n{reminders}\n"
         context += f"\nToday's Workout:\n{workout_text}\n"

@@ -3,6 +3,7 @@ from celery import shared_task
 from django.conf import settings
 from jarvis.utils.gpt_tts_generator import generate_voice_reminder
 from jarvis.utils.twilio_calling import send_call_reminder
+from django.db import transaction
 
 @shared_task(bind=True, max_retries=3)
 def generate_reminder_tts(self, reminder_id, reminder_text, user_name="User"):
@@ -56,18 +57,27 @@ def send_reminder_task(self, reminder_id, before=False):
     try:
         from jarvis.models import Reminder
         
-        reminder = Reminder.objects.get(pk=reminder_id)
-        
-        # Send the call reminder
+        # Lock the reminder row to avoid duplicate triggers when Celery retries or tasks overlap
+        with transaction.atomic():
+            reminder = Reminder.objects.select_for_update().get(pk=reminder_id)
+
+            # Skip if already handled (idempotency guard)
+            if reminder.is_triggered:
+                print(f"ℹ️ Reminder {reminder_id} already triggered; skipping duplicate call (before={before}).")
+                return {"status": "skipped", "reason": "already triggered", "before": before, "cleanup": False}
+
+        # Send the call reminder (outside the lock to keep DB lock short)
         result = send_call_reminder(reminder.id)
         print(f"📞 Call result: {result}")
-        
-        # If this is the final reminder (not the "before" reminder), cleanup
+
+        # If this is the final reminder (not the "before" reminder), mark triggered & cleanup
         if not before:
-            # Mark reminder as triggered
-            reminder.is_triggered = True
-            reminder.save()
-            
+            # Mark as triggered atomically; if another worker raced, skip cleanup
+            updated = Reminder.objects.filter(pk=reminder_id, is_triggered=False).update(is_triggered=True)
+            if updated == 0:
+                print(f"ℹ️ Reminder {reminder_id} was already marked triggered after call; skipping cleanup to avoid duplicates.")
+                return {"status": "skipped", "reason": "already triggered post-call", "before": before, "cleanup": False}
+
             # Delete the audio file
             audio_dir = os.path.join(settings.BASE_DIR, 'static', 'audio')
             audio_filename = f"{reminder_id}.wav"
