@@ -4,6 +4,7 @@ from django.conf import settings
 from jarvis.utils.gpt_tts_generator import generate_voice_reminder
 from jarvis.utils.twilio_calling import send_call_reminder
 from django.db import transaction
+from django.core.cache import cache
 
 @shared_task(bind=True, max_retries=3)
 def generate_reminder_tts(self, reminder_id, reminder_text, user_name="User"):
@@ -66,6 +67,13 @@ def send_reminder_task(self, reminder_id, before=False):
                 print(f"ℹ️ Reminder {reminder_id} already triggered; skipping duplicate call (before={before}).")
                 return {"status": "skipped", "reason": "already triggered", "before": before, "cleanup": False}
 
+            # Cache-based guard to prevent duplicated calls per stage (before/final)
+            stage = "before" if before else "final"
+            cache_key = f"reminder_call_{reminder_id}_{stage}"
+            if not cache.add(cache_key, "sent", timeout=60 * 60):
+                print(f"ℹ️ Reminder {reminder_id} stage '{stage}' already processed (cache guard); skipping call.")
+                return {"status": "skipped", "reason": "duplicate stage", "before": before, "cleanup": False}
+
         # Send the call reminder (outside the lock to keep DB lock short)
         result = send_call_reminder(reminder.id)
         print(f"📞 Call result: {result}")
@@ -79,18 +87,18 @@ def send_reminder_task(self, reminder_id, before=False):
                 return {"status": "skipped", "reason": "already triggered post-call", "before": before, "cleanup": False}
 
             # Delete the audio file
-            audio_dir = os.path.join(settings.BASE_DIR, 'static', 'audio')
-            audio_filename = f"{reminder_id}.wav"
-            audio_path = os.path.join(audio_dir, audio_filename)
+            # audio_dir = os.path.join(settings.BASE_DIR, 'static', 'audio')
+            # audio_filename = f"{reminder_id}.wav"
+            # audio_path = os.path.join(audio_dir, audio_filename)
             
-            if os.path.exists(audio_path):
-                try:
-                    os.remove(audio_path)
-                    print(f"🗑️ Deleted audio file: {audio_path}")
-                except Exception as e:
-                    print(f"⚠️ Failed to delete audio file {audio_path}: {e}")
-            else:
-                print(f"⚠️ Audio file not found: {audio_path}")
+            # if os.path.exists(audio_path):
+            #     try:
+            #         os.remove(audio_path)
+            #         print(f"🗑️ Deleted audio file: {audio_path}")
+            #     except Exception as e:
+            #         print(f"⚠️ Failed to delete audio file {audio_path}: {e}")
+            # else:
+            #     print(f"⚠️ Audio file not found: {audio_path}")
                 
         return {"status": "success", "before": before, "cleanup": not before}
         

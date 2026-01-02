@@ -36,6 +36,7 @@ ALLOWED_HOSTS = [
     'jacksonsaiassistant.com',
     'www.jacksonsaiassistant.com',
     'feee85a49328.ngrok-free.app',
+    'f0ee823a1cbc.ngrok-free.app',
 ]
 
 

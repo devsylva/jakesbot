@@ -96,7 +96,6 @@ class ReminderTool:
                 "properties": {
                     "title": {"type": "string"},
                     "time_iso": {"type": "string"},
-                    "remind_before": {"type": "integer", "default": 10},
                 },
                 "required": ["title", "time_iso"],
             },
@@ -126,8 +125,8 @@ class ReminderTool:
             },
         }
 
-    def create_reminder(self, title: str, time_iso: str, remind_before: int = 10) -> str:
-        logger.info(f"AI Agent called create_reminder for user {self.chat_id}: title='{title}', time='{time_iso}', remind_before={remind_before}")
+    def create_reminder(self, title: str, time_iso: str, remind_before: int = 0) -> str:
+        logger.info(f"AI Agent called create_reminder for user {self.chat_id}: title='{title}', time='{time_iso}', remind_before_removed=true")
         logger.info(f"Current UTC time: {timezone.now()}")
         
         # Parse the time string (handles ISO, relative, and absolute formats)
@@ -143,14 +142,9 @@ class ReminderTool:
             chat_id=self.chat_id,
             title=title,
             time=time,
-            remind_before=remind_before,
+            remind_before=0,
         )
         logger.info(f"Successfully created reminder for user {self.chat_id}: reminder_id={reminder.id}")
-
-        # Schedule the "before" reminder only if it will occur in the future
-        before_eta = time - timedelta(minutes=remind_before)
-        if remind_before > 0 and before_eta > timezone.now():
-            send_reminder_task.apply_async((reminder.id, True), eta=before_eta)
         
         # Always schedule the final reminder at the exact time
         if time > timezone.now():

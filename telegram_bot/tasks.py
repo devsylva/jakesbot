@@ -223,8 +223,8 @@ def check_due_reminders():
             import pytz
             local_tz = pytz.timezone('Africa/Lagos')
             local_dt = tz.localtime(reminder.time, local_tz)
-            message = f"⏰ Reminder: {reminder.title}\nScheduled for {local_dt.strftime('%H:%M %Z')}."
-            send_message_sync(reminder.chat_id, message)
+            message = f"⏰ Reminder: {reminder.title}\nScheduled for {local_dt.strftime('%H:%M %Z')}. Just went off!"
+            send_message_sync(7528993573, message)
             reminder.is_triggered = True
             reminder.save()
         except Exception as e:
