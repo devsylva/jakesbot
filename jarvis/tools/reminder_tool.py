@@ -35,9 +35,8 @@ def parse_reminder_time(time_input: str):
     if dt is not None:
         # Convert to UTC if already aware, otherwise assume UTC
         if timezone.is_naive(dt):
-            return timezone.make_aware(dt, pytz.utc)
-        else:
-            return dt.astimezone(pytz.utc)
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return dt.astimezone(pytz.utc)
     
     # Try relative time pattern: "in X hours/minutes/days"
     match = re.match(r'^in\s+(\d+)\s+(hours?|minutes?|days?)', time_input, re.IGNORECASE)
