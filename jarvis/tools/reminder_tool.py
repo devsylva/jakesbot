@@ -94,9 +94,16 @@ class ReminderTool:
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "time_iso": {"type": "string"},
+                    "when": {
+                        "type": "string",
+                        "description": (
+                            "Natural language time expression. ALWAYS use relative or local formats. "
+                            "Examples: 'in 2 hours', 'in 30 minutes', 'at 3 PM', 'at 15:30'. "
+                            "Do NOT pass ISO timestamps or UTC-offset strings — the backend calculates the exact UTC time."
+                        ),
+                    },
                 },
-                "required": ["title", "time_iso"],
+                "required": ["title", "when"],
             },
         }
 
@@ -118,19 +125,26 @@ class ReminderTool:
                 "properties": {
                     "id": {"type": "integer"},
                     "new_title": {"type": "string"},
-                    "new_time_iso": {"type": "string"},
+                    "new_when": {
+                        "type": "string",
+                        "description": (
+                            "Natural language time expression. ALWAYS use relative or local formats. "
+                            "Examples: ‘in 2 hours’, ‘in 30 minutes’, ‘at 3 PM’, ‘at 15:30’. "
+                            "Do NOT pass ISO timestamps or UTC-offset strings — the backend calculates the exact UTC time."
+                        ),
+                    },
                 },
                 "required": ["id"],
             },
         }
 
-    def create_reminder(self, title: str, time_iso: str, remind_before: int = 0) -> str:
-        logger.info(f"AI Agent called create_reminder for user {self.chat_id}: title='{title}', time='{time_iso}', remind_before_removed=true")
+    def create_reminder(self, title: str, when: str) -> str:
+        logger.info(f"AI Agent called create_reminder for user {self.chat_id}: title='{title}', when='{when}'")
         logger.info(f"Current UTC time: {timezone.now()}")
-        
-        # Parse the time string (handles ISO, relative, and absolute formats)
+
+        # Parse the time string (handles relative and absolute formats)
         try:
-            time = parse_reminder_time(time_iso)
+            time = parse_reminder_time(when)
         except ValueError as e:
             logger.error(f"Failed to parse reminder time: {e}")
             return f"⚠️ {str(e)}"
@@ -176,8 +190,8 @@ class ReminderTool:
         logger.info(f"Successfully listed {len(reminders)} reminders for user {self.chat_id}")
         return "\n".join(response_lines)
 
-    def update_reminder(self, id: int, new_title: str = None, new_time_iso: str = None) -> str:
-        logger.info(f"AI Agent called update_reminder for user {self.chat_id}: id={id}, new_title='{new_title}', new_time='{new_time_iso}'")
+    def update_reminder(self, id: int, new_title: str = None, new_when: str = None) -> str:
+        logger.info(f"AI Agent called update_reminder for user {self.chat_id}: id={id}, new_title='{new_title}', new_when='{new_when}'")
         try:
             reminder = Reminder.objects.get(id=id, chat_id=self.chat_id)
         except Reminder.DoesNotExist:
@@ -189,9 +203,9 @@ class ReminderTool:
 
         if new_title:
             reminder.title = new_title
-        if new_time_iso:
+        if new_when:
             try:
-                time = parse_reminder_time(new_time_iso)
+                time = parse_reminder_time(new_when)
             except ValueError as e:
                 logger.error(f"Failed to parse updated reminder time: {e}")
                 return f"⚠️ {str(e)}"
@@ -199,13 +213,13 @@ class ReminderTool:
 
         reminder.save()
         logger.info(f"Successfully updated reminder {id} for user {self.chat_id}: '{old_title}' -> '{reminder.title}'")
-        
-        if new_title and new_time_iso:
+
+        if new_title and new_when:
             new_time = format_display_time(reminder.time)
             return f"📝 Reminder '{old_title}' has been updated to '{reminder.title}' and rescheduled from {old_time} to {new_time}"
         elif new_title:
             return f"📝 Reminder '{old_title}' has been renamed to '{reminder.title}'"
-        elif new_time_iso:
+        elif new_when:
             new_time = format_display_time(reminder.time)
             return f"📝 Reminder '{reminder.title}' has been rescheduled from {old_time} to {new_time}"
         else:
